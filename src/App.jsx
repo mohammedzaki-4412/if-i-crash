@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 
 // ─── Environment Config ───
-const API_URL = import.meta.env.VITE_API_URL || '';
+// Fallback to import.meta.env or empty
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || '';
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
@@ -40,8 +41,8 @@ const translations = {
     years: 'years',
     disclaimer: 'Information shown here is provided by the profile owner and is not medically verified. Confirm critical information through appropriate medical procedures.',
     notFound: 'Emergency profile not found.',
-    notFoundSub: 'The QR may be inactive or invalid.',
-    loading: 'Loading emergency information...'
+    notFoundSub: 'The profile may not exist in AWS DynamoDB or the ID is invalid.',
+    loading: 'Fetching emergency profile from AWS...'
   },
   hi: {
     emergencyInfo: 'आपातकालीन जानकारी',
@@ -57,7 +58,7 @@ const translations = {
     years: 'वर्ष',
     disclaimer: 'यहाँ दिखाई गई जानकारी प्रोफ़ाइल स्वामी द्वारा प्रदान की गई है और चिकित्सकीय रूप से सत्यापित नहीं है।',
     notFound: 'आपातकालीन प्रोफ़ाइल नहीं मिली।',
-    notFoundSub: 'QR निष्क्रिय या अमान्य हो सकता है।'
+    notFoundSub: 'प्रोफ़ाइल अमान्य हो सकती है।'
   },
   kn: {
     emergencyInfo: 'ತುರ್ತು ಮಾಹಿತಿ',
@@ -86,21 +87,19 @@ function generateId() {
   return id;
 }
 
-// ─── Local Mock Fallback Store ───
+// ─── Local Mock Fallback (Strict - No Fake Demo Data) ───
 function mockApi(method, path, body) {
   return new Promise((resolve) => {
     setTimeout(() => {
       if (path.startsWith('/emergency/')) {
+        const reqId = path.split('/')[2];
         const stored = localStorage.getItem('ific_profile');
-        resolve(stored ? JSON.parse(stored) : {
-          name: 'Rahul Kumar',
-          emergencyId: path.split('/')[2] || '8F72K9QX',
-          bloodGroup: 'O+',
-          allergies: 'Penicillin',
-          conditions: 'Type-1 Diabetes',
-          primaryContactName: 'Priya Kumar',
-          primaryContactPhone: '+919876543210'
-        });
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.emergencyId === reqId) return resolve(parsed);
+        }
+        // Return null if profile not found locally - do NOT show fake demo data
+        resolve(null);
       } else if (path === '/profile/me') {
         const stored = localStorage.getItem('ific_profile');
         resolve(stored ? JSON.parse(stored) : {});
@@ -122,16 +121,34 @@ function mockApi(method, path, body) {
   });
 }
 
+// ─── API Gateway Fetch Handler ───
 async function apiCall(method, path, body = null, token = null) {
-  if (!API_URL) return mockApi(method, path, body);
+  if (!API_URL) {
+    console.warn('[AWS Warning]: VITE_API_URL is missing in environment settings.');
+    return mockApi(method, path, body);
+  }
+
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${API_URL}${path}`, { method, headers, body: body ? JSON.stringify(body) : null });
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : null
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `AWS HTTP Error ${res.status}`);
+    }
     return await res.json();
   } catch (err) {
+    console.error(`[AWS API Error on ${path}]:`, err.message);
+    // If scanning public emergency profile and AWS fails, throw error directly
+    if (path.startsWith('/emergency/')) {
+      throw err;
+    }
     return mockApi(method, path, body);
   }
 }
@@ -715,7 +732,7 @@ function ProfileForm({ user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save profile.');
+      setError(err.message || 'Failed to save profile to AWS.');
     }
     setSaving(false);
   }
@@ -750,7 +767,7 @@ function ProfileForm({ user }) {
 
         <form onSubmit={handleSave}>
           {error && <div className="alert alert-error">{error}</div>}
-          {saved && <div className="alert alert-success"><Check size={16} /> Profile saved successfully.</div>}
+          {saved && <div className="alert alert-success"><Check size={16} /> Profile saved successfully to AWS DynamoDB.</div>}
 
           <div className="form-grid">
             <div className="form-section">
@@ -826,7 +843,7 @@ function ProfileForm({ user }) {
 }
 
 // ═══════════════════════════════════════
-// WALLPAPER STUDIO (Fixed Sizing & X/Y Sliders)
+// WALLPAPER STUDIO
 // ═══════════════════════════════════════
 function WallpaperStudio({ user }) {
   const [profile, setProfile] = useState(null);
@@ -1104,7 +1121,7 @@ function WallpaperStudio({ user }) {
 }
 
 // ═══════════════════════════════════════
-// EMERGENCY VIEW (PUBLIC / RESPONDER)
+// EMERGENCY VIEW (PUBLIC RESPONDER - AWS ONLY)
 // ═══════════════════════════════════════
 function EmergencyView() {
   const { id } = useParams();
