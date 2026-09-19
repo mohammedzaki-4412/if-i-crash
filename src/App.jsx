@@ -18,7 +18,7 @@ import {
 const API_URL = import.meta.env.VITE_API_URL || '';
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || '';
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
-const APP_URL = window.location.origin;
+const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 const userPool = (POOL_ID && CLIENT_ID)
   ? new CognitoUserPool({ UserPoolId: POOL_ID, ClientId: CLIENT_ID })
@@ -656,7 +656,7 @@ function Dashboard({ user }) {
 // ═══════════════════════════════════════
 function ProfileForm({ user }) {
   const [form, setForm] = useState({
-    name: '', age: '', bloodGroup: '', allergies: '', conditions: '',
+    emergencyId: '', name: '', age: '', bloodGroup: '', allergies: '', conditions: '',
     medication: '', instructions: '', primaryContactName: '', primaryContactPhone: '',
     secondaryContactName: '', secondaryContactPhone: '',
     visibility: {
@@ -708,7 +708,10 @@ function ProfileForm({ user }) {
     setSaving(true);
 
     try {
-      await apiCall('POST', '/profile', form, user?.token);
+      const res = await apiCall('POST', '/profile', form, user?.token);
+      if (res && res.emergencyId) {
+        setForm(prev => ({ ...prev, emergencyId: res.emergencyId }));
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -823,14 +826,14 @@ function ProfileForm({ user }) {
 }
 
 // ═══════════════════════════════════════
-// WALLPAPER STUDIO (X/Y Sliders Control)
+// WALLPAPER STUDIO (Fixed Sizing & X/Y Sliders)
 // ═══════════════════════════════════════
 function WallpaperStudio({ user }) {
   const [profile, setProfile] = useState(null);
   const [bgImage, setBgImage] = useState(null);
   const [bgImageUrl, setBgImageUrl] = useState('');
-  const [qrX, setQrX] = useState(68); // X Axis % (0 to 80)
-  const [qrY, setQrY] = useState(68); // Y Axis % (0 to 80)
+  const [qrX, setQrX] = useState(65);
+  const [qrY, setQrY] = useState(70);
   const [qrSize, setQrSize] = useState(22);
   const [qrOpacity, setQrOpacity] = useState(100);
   const [scanResult, setScanResult] = useState(null);
@@ -879,7 +882,6 @@ function WallpaperStudio({ user }) {
     canvas.height = targetH;
     const ctx = canvas.getContext('2d');
 
-    // Draw background image (Cover aspect)
     const imgRatio = bgImage.width / bgImage.height;
     const canvasRatio = targetW / targetH;
     let sx = 0, sy = 0, sw = bgImage.width, sh = bgImage.height;
@@ -896,11 +898,10 @@ function WallpaperStudio({ user }) {
     const padding = 16;
     const containerSize = qrPixelSize + padding * 2;
 
-    // Calculate exact X and Y coordinates based on slider %
-    const maxCanvasX = targetW - containerSize - 20;
-    const maxCanvasY = targetH - containerSize - 40;
-    const qrCanvasX = Math.round((maxCanvasX * (qrX / 100)));
-    const qrCanvasY = Math.round((maxCanvasY * (qrY / 100)));
+    const maxCanvasX = targetW - containerSize - 32;
+    const maxCanvasY = targetH - containerSize - 64;
+    const qrCanvasX = Math.round((maxCanvasX * (qrX / 100)) + 16);
+    const qrCanvasY = Math.round((maxCanvasY * (qrY / 100)) + 32);
 
     ctx.globalAlpha = qrOpacity / 100;
     ctx.fillStyle = '#ffffff';
@@ -974,19 +975,22 @@ function WallpaperStudio({ user }) {
                   <div
                     className="phone-qr-overlay"
                     style={{
-                      left: `${qrX * 0.72}%`,
-                      top: `${qrY * 0.72}%`,
-                      opacity: qrOpacity / 100
+                      position: 'absolute',
+                      left: `calc(${qrX}% * (100% - ${qrSize}% - 16px) / 100 + 8px)`,
+                      top: `calc(${qrY}% * (100% - ${qrSize}% - 32px) / 100 + 16px)`,
+                      width: `${qrSize}%`,
+                      opacity: qrOpacity / 100,
+                      boxSizing: 'border-box'
                     }}
                   >
-                    <div className="phone-qr-box" style={{ width: `${qrSize}%` }}>
+                    <div className="phone-qr-box" style={{ width: '100%', boxSizing: 'border-box' }}>
                       <QRCodeCanvas
                         value={emergencyUrl}
                         size={200}
                         level="M"
                         bgColor="#ffffff"
                         fgColor="#000000"
-                        style={{ width: '100%', height: 'auto' }}
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
                       />
                       <span className="phone-qr-mini-label">SCAN FOR EMERGENCY INFO</span>
                     </div>
@@ -1019,8 +1023,8 @@ function WallpaperStudio({ user }) {
                   <h3 className="card-title"><Move size={18} /> Horizontal Position (X Axis)</h3>
                   <input
                     type="range"
-                    min={5}
-                    max={95}
+                    min={0}
+                    max={100}
                     value={qrX}
                     onChange={e => setQrX(Number(e.target.value))}
                     className="slider"
@@ -1032,8 +1036,8 @@ function WallpaperStudio({ user }) {
                   <h3 className="card-title"><Sliders size={18} /> Vertical Position (Y Axis)</h3>
                   <input
                     type="range"
-                    min={5}
-                    max={95}
+                    min={0}
+                    max={100}
                     value={qrY}
                     onChange={e => setQrY(Number(e.target.value))}
                     className="slider"
