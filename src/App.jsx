@@ -11,14 +11,16 @@ import {
   Shield, QrCode, Phone, AlertTriangle, Heart, Pill, Droplets,
   FileText, User, Edit, Download, Copy, Check, X, Menu,
   ChevronRight, Eye, EyeOff, Upload, Move, Sun, LogOut,
-  Globe, Scan, Smartphone, Lock, Camera, Plus, Clock, Sliders
+  Globe, Scan, Smartphone, Lock, Camera, Plus, Clock, Sliders, AlertCircle
 } from 'lucide-react';
 
-// ─── Environment Config (STRICT AWS) ───
+// ─── Environment Config ───
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || '';
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+
+const isConfigured = Boolean(API_URL && POOL_ID && CLIENT_ID);
 
 const userPool = (POOL_ID && CLIENT_ID)
   ? new CognitoUserPool({ UserPoolId: POOL_ID, ClientId: CLIENT_ID })
@@ -40,8 +42,8 @@ const translations = {
     years: 'years',
     disclaimer: 'Information shown here is provided by the profile owner and is not medically verified. Confirm critical information through appropriate medical procedures.',
     notFound: 'Emergency profile not found.',
-    notFoundSub: 'This profile may be inactive or does not exist in the system.',
-    loading: 'Fetching emergency profile securely...'
+    notFoundSub: 'This profile may be inactive or does not exist in DynamoDB.',
+    loading: 'Fetching emergency profile securely from AWS...'
   },
   hi: {
     emergencyInfo: 'आपातकालीन जानकारी',
@@ -79,10 +81,10 @@ function t(key, lang = 'en') {
   return translations[lang]?.[key] || translations.en[key] || key;
 }
 
-// ─── STRICT API Fetch Handler (No Mocks allowed) ───
+// ─── API Helper ───
 async function apiCall(method, path, body = null, token = null) {
   if (!API_URL) {
-    throw new Error('SYSTEM ERROR: VITE_API_URL is missing. Connect AWS API Gateway.');
+    throw new Error('VITE_API_URL is missing. Please set Environment Variables.');
   }
 
   const headers = { 'Content-Type': 'application/json' };
@@ -96,12 +98,12 @@ async function apiCall(method, path, body = null, token = null) {
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `HTTP Error ${res.status}`);
+    throw new Error(errData.error || `AWS HTTP Error ${res.status}`);
   }
   return await res.json();
 }
 
-// ─── STRICT Cognito Helpers (No Mocks allowed) ───
+// ─── Cognito Real Auth Helpers ───
 function getCognitoSession() {
   return new Promise((resolve) => {
     if (!userPool) return resolve(null);
@@ -121,10 +123,10 @@ function getCognitoSession() {
 
 function cognitoLogin(email, password) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured (.env missing).'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
     
-    const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
-    const authDetails = new AuthenticationDetails({ Username: email, Password: password });
+    const cognitoUser = new CognitoUser({ Username: email.toLowerCase().trim(), Pool: userPool });
+    const authDetails = new AuthenticationDetails({ Username: email.toLowerCase().trim(), Password: password });
 
     cognitoUser.authenticateUser(authDetails, {
       onSuccess: (result) => {
@@ -141,10 +143,10 @@ function cognitoLogin(email, password) {
 
 function cognitoSignUp(email, password, name) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured.'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
     
     const attrList = [new CognitoUserAttribute({ Name: 'name', Value: name })];
-    userPool.signUp(email, password, attrList, null, (err, result) => {
+    userPool.signUp(email.toLowerCase().trim(), password, attrList, null, (err, result) => {
       if (err) return reject(err);
       resolve(result.user);
     });
@@ -153,10 +155,10 @@ function cognitoSignUp(email, password, name) {
 
 function cognitoConfirm(email, code) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured.'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
     
-    const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
-    cognitoUser.confirmRegistration(code, true, (err, result) => {
+    const cognitoUser = new CognitoUser({ Username: email.toLowerCase().trim(), Pool: userPool });
+    cognitoUser.confirmRegistration(code.trim(), true, (err, result) => {
       if (err) return reject(err);
       resolve(result);
     });
@@ -168,6 +170,25 @@ function cognitoLogout() {
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) cognitoUser.signOut();
   }
+}
+
+// ═══════════════════════════════════════
+// MISSING ENV WARNING BANNER
+// ═══════════════════════════════════════
+function ConfigWarning() {
+  if (isConfigured) return null;
+
+  return (
+    <div className="alert alert-error" style={{ margin: '16px auto', maxWidth: '800px', borderRadius: '12px' }}>
+      <AlertCircle size={24} style={{ flexShrink: 0 }} />
+      <div>
+        <strong>AWS Services Not Connected (.env variables missing)</strong>
+        <p className="text-sm" style={{ marginTop: 4 }}>
+          Please add <code>VITE_API_URL</code>, <code>VITE_COGNITO_USER_POOL_ID</code>, and <code>VITE_COGNITO_CLIENT_ID</code> in your local <code>.env</code> file or deployment settings (AWS Amplify / Vercel).
+        </p>
+      </div>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════
@@ -191,7 +212,6 @@ function Header({ user, onLogout }) {
           {!user ? (
             <>
               <a href="/#how-it-works" className="nav-link" onClick={() => setMenuOpen(false)}>How it works</a>
-              <a href="/#safety" className="nav-link" onClick={() => setMenuOpen(false)}>Safety</a>
               <Link to="/login" className="nav-link" onClick={() => setMenuOpen(false)}>Login</Link>
               <Link to="/register" className="btn btn-primary btn-sm" onClick={() => setMenuOpen(false)}>Create Emergency ID</Link>
             </>
@@ -223,6 +243,7 @@ function LandingPage() {
 
   return (
     <div className="landing">
+      <ConfigWarning />
       <section className="hero">
         <div className="hero-inner">
           <div className="hero-text">
@@ -328,7 +349,7 @@ function LoginPage({ onLogin }) {
       onLogin(user);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      setError(err.message || 'Login failed. Please check your email and password.');
     }
     setLoading(false);
   };
@@ -340,6 +361,7 @@ function LoginPage({ onLogin }) {
           <Shield size={28} className="text-primary" />
           <h1>Welcome back</h1>
         </div>
+        <ConfigWarning />
         <form onSubmit={handleSubmit}>
           {error && <div className="alert alert-error">{error}</div>}
           <div className="form-group">
@@ -391,6 +413,7 @@ function RegisterPage({ onLogin }) {
   const handleConfirm = async (e) => {
     e.preventDefault();
     setError('');
+    if (!code) return setError('Please enter the verification code sent to your email.');
     setLoading(true);
 
     try {
@@ -399,7 +422,7 @@ function RegisterPage({ onLogin }) {
       onLogin(user);
       navigate('/profile');
     } catch (err) {
-      setError(err.message || 'Verification failed. Please check the code.');
+      setError(err.message || 'Verification failed. Please check the code sent to your email.');
     }
     setLoading(false);
   };
@@ -411,13 +434,14 @@ function RegisterPage({ onLogin }) {
           <Shield size={28} className="text-primary" />
           <h1>{step === 'signup' ? 'Create your emergency ID' : 'Verify your email'}</h1>
         </div>
+        <ConfigWarning />
 
         {step === 'signup' ? (
           <form onSubmit={handleSignUp}>
             {error && <div className="alert alert-error">{error}</div>}
             <div className="form-group">
               <label>Full name</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Rahul Kumar" required />
+              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="E.g. Rahul Kumar" required />
             </div>
             <div className="form-group">
               <label>Email</label>
@@ -428,7 +452,7 @@ function RegisterPage({ onLogin }) {
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 6 characters" required />
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading ? 'Sending code to email...' : 'Create account'}
             </button>
             <p className="auth-footer">
               Already have an account? <Link to="/login">Sign in</Link>
@@ -438,14 +462,14 @@ function RegisterPage({ onLogin }) {
           <form onSubmit={handleConfirm}>
             {error && <div className="alert alert-error">{error}</div>}
             <p className="text-sm text-secondary" style={{ marginBottom: 16 }}>
-              We sent a confirmation code to <strong>{email}</strong>.
+              A 6-digit confirmation code was sent to <strong>{email}</strong>. Check your inbox/spam folder.
             </p>
             <div className="form-group">
-              <label>Verification Code</label>
+              <label>AWS Cognito Verification Code</label>
               <input type="text" value={code} onChange={e => setCode(e.target.value)} placeholder="123456" required />
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Verifying...' : 'Verify & Sign in'}
+              {loading ? 'Verifying with AWS...' : 'Verify Code & Sign In'}
             </button>
           </form>
         )}
@@ -486,7 +510,7 @@ function Dashboard({ user }) {
   }
 
   if (loading) {
-    return <div className="page-loading"><div className="spinner"></div><p>Fetching secured profile...</p></div>;
+    return <div className="page-loading"><div className="spinner"></div><p>Fetching secured profile from DynamoDB...</p></div>;
   }
 
   const emergencyUrl = profile?.emergencyId ? `${APP_URL}/e/${profile.emergencyId}` : null;
@@ -496,14 +520,14 @@ function Dashboard({ user }) {
       <div className="page-inner">
         <div className="page-header">
           <h1>Good to see you{user?.name ? `, ${user.name}` : ''}</h1>
-          <p className="text-secondary">Your secure dashboard</p>
+          <p className="text-secondary">Your secure emergency dashboard</p>
         </div>
 
         {!profile || !profile.emergencyId ? (
           <div className="empty-state">
             <Shield size={48} className="text-secondary" />
-            <h2>No emergency profile yet</h2>
-            <p className="text-secondary">Create your emergency profile to generate your lock-screen QR.</p>
+            <h2>No emergency profile found</h2>
+            <p className="text-secondary">Create your profile to generate a dynamic emergency ID.</p>
             <button className="btn btn-primary" onClick={() => navigate('/profile')}>
               <Plus size={18} /> Create profile
             </button>
@@ -531,7 +555,7 @@ function Dashboard({ user }) {
                   <Edit size={16} /> Edit profile
                 </button>
                 <button className="btn btn-outline btn-sm" onClick={() => window.open(`/e/${profile.emergencyId}`, '_blank')}>
-                  <Eye size={16} /> View public emergency page
+                  <Eye size={16} /> View emergency page
                 </button>
               </div>
             </div>
@@ -607,9 +631,7 @@ function ProfileForm({ user }) {
       if (p && p.name) {
         setForm(prev => ({ ...prev, ...p, visibility: { ...prev.visibility, ...(p.visibility || {}) } }));
       }
-    } catch (err) {
-      // It's okay if profile doesn't exist yet
-    }
+    } catch (err) {}
     setLoading(false);
   }
 
@@ -643,7 +665,7 @@ function ProfileForm({ user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save profile. Please try again.');
+      setError(err.message || 'Failed to save profile.');
     }
     setSaving(false);
   }
@@ -651,7 +673,7 @@ function ProfileForm({ user }) {
   const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
   if (loading) {
-    return <div className="page-loading"><div className="spinner"></div><p>Loading profile...</p></div>;
+    return <div className="page-loading"><div className="spinner"></div><p>Loading profile from AWS...</p></div>;
   }
 
   function VisToggle({ field }) {
@@ -685,7 +707,7 @@ function ProfileForm({ user }) {
               <h2 className="form-section-title"><User size={18} /> Personal Information</h2>
               <div className="form-group">
                 <label>Full name *</label>
-                <input type="text" value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="E.g. Rahul Kumar" required />
+                <input type="text" value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="Rahul Kumar" required />
               </div>
               <div className="form-group">
                 <label>Age <VisToggle field="age" /></label>
@@ -754,14 +776,14 @@ function ProfileForm({ user }) {
 }
 
 // ═══════════════════════════════════════
-// WALLPAPER STUDIO (Perfected X/Y Positioning)
+// WALLPAPER STUDIO
 // ═══════════════════════════════════════
 function WallpaperStudio({ user }) {
   const [profile, setProfile] = useState(null);
   const [bgImage, setBgImage] = useState(null);
   const [bgImageUrl, setBgImageUrl] = useState('');
-  const [qrX, setQrX] = useState(50); // Maps perfectly 0 to 100 center
-  const [qrY, setQrY] = useState(70); // Maps perfectly 0 to 100 center
+  const [qrX, setQrX] = useState(50);
+  const [qrY, setQrY] = useState(70);
   const [qrSize, setQrSize] = useState(25);
   const [qrOpacity, setQrOpacity] = useState(100);
   const [scanResult, setScanResult] = useState(null);
@@ -822,14 +844,12 @@ function WallpaperStudio({ user }) {
     }
     ctx.drawImage(bgImage, sx, sy, sw, sh, 0, 0, targetW, targetH);
 
-    // Exact math translation from the DOM CSS to Canvas
     const qrPixelSize = Math.round(targetW * (qrSize / 100));
     const padding = 16;
     const containerSize = qrPixelSize + padding * 2;
     
-    // The bounds in which the container can slide (0% to 100%)
     const maxCanvasX = targetW - containerSize;
-    const maxCanvasY = targetH - (containerSize + 30); // 30 is text space
+    const maxCanvasY = targetH - (containerSize + 30);
 
     const qrCanvasX = Math.round(maxCanvasX * (qrX / 100));
     const qrCanvasY = Math.round(maxCanvasY * (qrY / 100));
@@ -895,7 +915,7 @@ function WallpaperStudio({ user }) {
                 backgroundImage: `url(${bgImageUrl})`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
-                position: 'relative' // Important for absolute child
+                position: 'relative'
               } : {}}>
                 {!bgImageUrl && (
                   <div className="phone-placeholder">
@@ -910,7 +930,7 @@ function WallpaperStudio({ user }) {
                       position: 'absolute',
                       left: `${qrX}%`,
                       top: `${qrY}%`,
-                      transform: `translate(-${qrX}%, -${qrY}%)`, // Perfect scaling alignment
+                      transform: `translate(-${qrX}%, -${qrY}%)`,
                       width: `${qrSize}%`,
                       opacity: qrOpacity / 100,
                       boxSizing: 'border-box'
