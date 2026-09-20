@@ -81,17 +81,19 @@ function t(key, lang = 'en') {
   return translations[lang]?.[key] || translations.en[key] || key;
 }
 
-// ─── Fast API Fetch Handler ───
+// ─── Diagnostic API Fetch Handler ───
 async function apiCall(method, path, body = null, token = null) {
   if (!API_URL) {
-    throw new Error('VITE_API_URL is missing. Please configure Environment Variables in AWS Amplify.');
+    throw new Error('VITE_API_URL is missing. Add VITE_API_URL in AWS Amplify Environment Variables.');
   }
 
+  const cleanApiUrl = API_URL.trim().replace(/\/$/, '');
+  const fullUrl = `${cleanApiUrl}${path}`;
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    const res = await fetch(fullUrl, {
       method,
       headers,
       body: body ? JSON.stringify(body) : null
@@ -104,7 +106,7 @@ async function apiCall(method, path, body = null, token = null) {
     return await res.json();
   } catch (err) {
     if (err.name === 'TypeError' && err.message.includes('fetch')) {
-      throw new Error('Failed to connect to AWS API Gateway. Verify CORS and VITE_API_URL in AWS Amplify settings.');
+      throw new Error(`Failed to connect to ${fullUrl}. (Check CORS / Lambda Permissions)`);
     }
     throw err;
   }
@@ -609,7 +611,7 @@ function Dashboard({ user }) {
 }
 
 // ═══════════════════════════════════════
-// EMERGENCY PROFILE FORM (Strict 10-Digit Mobile Validation)
+// EMERGENCY PROFILE FORM
 // ═══════════════════════════════════════
 function ProfileForm({ user }) {
   const [form, setForm] = useState({
@@ -647,7 +649,6 @@ function ProfileForm({ user }) {
     setSaved(false);
   }
 
-  // Filter non-digits and enforce strictly max 10 characters
   function handlePhoneChange(field, rawVal) {
     const digitsOnly = rawVal.replace(/\D/g, '').slice(0, 10);
     updateField(field, digitsOnly);
@@ -669,7 +670,6 @@ function ProfileForm({ user }) {
     setError('');
     if (!form.name) return setError('Full name is required.');
 
-    // 10-Digit Phone Validation
     if (form.primaryContactPhone && form.primaryContactPhone.length !== 10) {
       return setError('Primary contact phone number must be exactly 10 digits.');
     }
@@ -687,7 +687,7 @@ function ProfileForm({ user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save profile. Check API Gateway URL.');
+      setError(err.message || 'Failed to save profile.');
     }
     setSaving(false);
   }
@@ -721,7 +721,7 @@ function ProfileForm({ user }) {
         </div>
 
         <form onSubmit={handleSave}>
-          {error && <div className="alert alert-error">{error}</div>}
+          {error && <div className="alert alert-error" style={{ wordBreak: 'break-word' }}>{error}</div>}
           {saved && <div className="alert alert-success"><Check size={16} /> Profile successfully saved to AWS.</div>}
 
           <div className="form-grid">
