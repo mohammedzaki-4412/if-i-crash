@@ -49,7 +49,7 @@ The project was built as a hands-on cloud development project using **React and 
 
 ## 📊 Dashboard
 
-![If I Crash Dashboard](Screenshots/Dashboard.png)
+![If I Crash Dashboard](Screenshots/Dasboard.png)
 
 ---
 
@@ -59,9 +59,10 @@ The project was built as a hands-on cloud development project using **React and 
 
 ---
 
-## 🪪 Emergency Card
+## 🪪 Wallpaper
 
-![Emergency Card](Screenshots/Wallpaper%201.png)
+![Emergency Card](Screenshots/Wallpaper!%201.png)
+![Emergency Card](Screenshots/Wallpaper2%201.png)
 
 ---
 
