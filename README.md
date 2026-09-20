@@ -2,92 +2,121 @@
 
 > **Your emergency information, available when it matters most.**
 
-**If I Crash** is a web application designed to make critical emergency information quickly accessible after a road accident or other emergency.
+A QR-powered emergency information system designed to make critical personal information quickly accessible during an emergency.
 
-Instead of relying on a rescuer to know who the victim is or how to contact their family, the user can create an emergency profile and generate a **QR-powered emergency card**. The QR code can be scanned to quickly access the information the user has chosen to make available during an emergency.
+<p align="center">
 
-### 🔗 Live Demo
+[![Live Demo](https://img.shields.io/badge/🚀%20Live%20Demo-If%20I%20Crash-red?style=for-the-badge)](https://main.d23bpdt0a1hdn1.amplifyapp.com/)
+[![React](https://img.shields.io/badge/React-19-blue?style=for-the-badge&logo=react)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-purple?style=for-the-badge&logo=vite)](https://vite.dev/)
+[![AWS](https://img.shields.io/badge/AWS-Amplify-orange?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/amplify/)
 
-**[Try If I Crash](https://main.d23bpdt0a1hdn1.amplifyapp.com/)**
-
----
-
-## 📌 The Problem
-
-During an accident, a person may be unconscious, unable to communicate, or without someone nearby who knows their emergency information.
-
-Important details such as:
-
-* Name
-* Blood group
-* Emergency contacts
-* Other emergency information
-
-may not be immediately available to a rescuer.
-
-**If I Crash** provides a simple way to connect that information to a physical emergency card through a QR code.
+</p>
 
 ---
 
-* Desktop browsers
+## 🌐 Live Application
+
+### 🚀 [Launch If I Crash](https://main.d23bpdt0a1hdn1.amplifyapp.com/)
 
 ---
 
-## 📸 Screenshots
+## 💡 About the Project
 
-### Home Page
+During an accident or emergency, a person may be unconscious or unable to communicate important personal information.
 
-![Home Page](screenshots/Home%20Page.png)
+**If I Crash** provides a digital emergency profile connected to a QR-powered emergency card.
 
-### How It Works
+A user can create an account, add important emergency information, generate an emergency card, and use the QR code to provide quick access to selected information when it matters most.
 
-![How It Works](screenshots/How%20it%20works.png)
+The project was built as a hands-on cloud development project using **React and AWS**.
 
-### Dashboard
+---
 
-![Dashboard](screenshots/Dashboard.png)
+# 📸 Screenshots
 
-### Emergency Profile
+## 🏠 Home Page
 
-![Emergency Profile](screenshots/Emergency%20Profile.png)
+![If I Crash Home Page](Screenshots/Home%20Page.png)
 
-### Emergency Card
+---
 
-![Emergency Card](screenshots/Wallpaper%201.png)
+## 🔄 How It Works
 
-## ✨ Features
+![How If I Crash Works](Screenshots/How%20it%20works.png)
 
-- User authentication
-- Emergency profile
-- Digital emergency card
-- QR code generation
-- Emergency information access
-- Profile updates
-- Custom emergency card wallpaper
-- Responsive design
+---
 
-## ☁️ AWS
+## 📊 Dashboard
 
-The application uses AWS for cloud deployment, authentication, and backend functionality.
+![If I Crash Dashboard](Screenshots/Dashboard.png)
 
-- **AWS Amplify** — application hosting and deployment
-- **Amazon Cognito** — user authentication
-- **AWS Backend** — application data and backend functionality
+---
 
-## 🛠️ Tech Stack
+## 🆘 Emergency Profile
 
-- React
-- JavaScript
-- Vite
-- AWS Amplify
-- Amazon Cognito
-- QRCode React
-- Git & GitHub
+![Emergency Profile](Screenshots/Emergency%20Profile.png)
 
-## 🚀 Run Locally
+---
 
-```bash
-git clone https://github.com/mohammedzaki-4412/if-i-crash.git
-cd if-i-crash
-npm install
-npm run dev
+## 🪪 Emergency Card
+
+![Emergency Card](Screenshots/Wallpaper%201.png)
+
+---
+
+# ✨ Features
+
+- 🔐 **User Authentication**
+  - Secure user account and authentication flow.
+
+- 👤 **Emergency Profile**
+  - Store important emergency information in one place.
+
+- 🪪 **Digital Emergency Card**
+  - Generate a personalized emergency card containing selected emergency information and a QR code.
+
+- 📱 **QR Code Access**
+  - A rescuer can scan the QR code to access the available emergency information.
+
+- 🔄 **Profile Updates**
+  - Update emergency information whenever required.
+
+- 🎨 **Custom Emergency Card**
+  - Personalize the appearance of the emergency card using wallpapers.
+
+- 📱 **Responsive Design**
+  - Designed to work across mobile, tablet, and desktop screens.
+
+- ☁️ **Cloud Deployment**
+  - Deployed as a live web application using AWS.
+
+---
+
+# 🔄 How It Works
+
+```text
+                    USER
+                      │
+                      ▼
+              Create Account
+                      │
+                      ▼
+            Create Emergency Profile
+                      │
+                      ├── Name
+                      ├── Blood Group
+                      ├── Emergency Contacts
+                      └── Emergency Information
+                      │
+                      ▼
+             Generate Emergency Card
+                      │
+                      ▼
+                  QR Code
+                      │
+                      ▼
+              Rescuer Scans QR
+                      │
+                      ▼
+          Emergency Information
