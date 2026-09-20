@@ -15,9 +15,9 @@ import {
 } from 'lucide-react';
 
 // ─── Environment Config ───
-const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || '';
-const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
+const API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const POOL_ID = (import.meta.env.VITE_COGNITO_USER_POOL_ID || '').trim();
+const CLIENT_ID = (import.meta.env.VITE_COGNITO_CLIENT_ID || '').trim();
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 const isConfigured = Boolean(API_URL && POOL_ID && CLIENT_ID);
@@ -43,7 +43,7 @@ const translations = {
     disclaimer: 'Information shown here is provided by the profile owner and is not medically verified. Confirm critical information through appropriate medical procedures.',
     notFound: 'Emergency profile not found.',
     notFoundSub: 'This profile may be inactive or does not exist in DynamoDB.',
-    loading: 'Fetching emergency profile securely from AWS...'
+    loading: 'Loading profile...'
   },
   hi: {
     emergencyInfo: 'आपातकालीन जानकारी',
@@ -81,29 +81,36 @@ function t(key, lang = 'en') {
   return translations[lang]?.[key] || translations.en[key] || key;
 }
 
-// ─── API Helper ───
+// ─── Fast API Fetch Handler ───
 async function apiCall(method, path, body = null, token = null) {
   if (!API_URL) {
-    throw new Error('VITE_API_URL is missing. Please set Environment Variables.');
+    throw new Error('VITE_API_URL is missing. Please configure Environment Variables in AWS Amplify.');
   }
 
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : null
-  });
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : null
+    });
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `AWS HTTP Error ${res.status}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status} Error`);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      throw new Error('Failed to connect to AWS API Gateway. Verify CORS and VITE_API_URL in AWS Amplify settings.');
+    }
+    throw err;
   }
-  return await res.json();
 }
 
-// ─── Cognito Real Auth Helpers ───
+// ─── Fast Cognito Helpers ───
 function getCognitoSession() {
   return new Promise((resolve) => {
     if (!userPool) return resolve(null);
@@ -123,7 +130,7 @@ function getCognitoSession() {
 
 function cognitoLogin(email, password) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Add environment variables in AWS Amplify.'));
     
     const cognitoUser = new CognitoUser({ Username: email.toLowerCase().trim(), Pool: userPool });
     const authDetails = new AuthenticationDetails({ Username: email.toLowerCase().trim(), Password: password });
@@ -143,7 +150,7 @@ function cognitoLogin(email, password) {
 
 function cognitoSignUp(email, password, name) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Add environment variables in AWS Amplify.'));
     
     const attrList = [new CognitoUserAttribute({ Name: 'name', Value: name })];
     userPool.signUp(email.toLowerCase().trim(), password, attrList, null, (err, result) => {
@@ -155,7 +162,7 @@ function cognitoSignUp(email, password, name) {
 
 function cognitoConfirm(email, code) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return reject(new Error('AWS Cognito is not configured. Set environment variables.'));
+    if (!userPool) return reject(new Error('AWS Cognito is not configured. Add environment variables in AWS Amplify.'));
     
     const cognitoUser = new CognitoUser({ Username: email.toLowerCase().trim(), Pool: userPool });
     cognitoUser.confirmRegistration(code.trim(), true, (err, result) => {
@@ -182,9 +189,9 @@ function ConfigWarning() {
     <div className="alert alert-error" style={{ margin: '16px auto', maxWidth: '800px', borderRadius: '12px' }}>
       <AlertCircle size={24} style={{ flexShrink: 0 }} />
       <div>
-        <strong>AWS Services Not Connected (.env variables missing)</strong>
+        <strong>AWS Configuration Missing (.env)</strong>
         <p className="text-sm" style={{ marginTop: 4 }}>
-          Please add <code>VITE_API_URL</code>, <code>VITE_COGNITO_USER_POOL_ID</code>, and <code>VITE_COGNITO_CLIENT_ID</code> in your local <code>.env</code> file or deployment settings (AWS Amplify / Vercel).
+          Please add <code>VITE_API_URL</code>, <code>VITE_COGNITO_USER_POOL_ID</code>, and <code>VITE_COGNITO_CLIENT_ID</code> in AWS Amplify Environment Variables.
         </p>
       </div>
     </div>
@@ -321,7 +328,7 @@ function LandingPage() {
       <footer className="footer">
         <div className="footer-inner">
           <span className="footer-logo"><Shield size={16} /> IF I CRASH</span>
-          <span className="footer-copy">© 2025 If I Crash. Built on AWS Serverless.</span>
+          <span className="footer-copy">© 2026 If I Crash. Built on AWS Serverless.</span>
         </div>
       </footer>
     </div>
@@ -441,7 +448,7 @@ function RegisterPage({ onLogin }) {
             {error && <div className="alert alert-error">{error}</div>}
             <div className="form-group">
               <label>Full name</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="E.g. Rahul Kumar" required />
+              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Rahul Kumar" required />
             </div>
             <div className="form-group">
               <label>Email</label>
@@ -452,7 +459,7 @@ function RegisterPage({ onLogin }) {
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 6 characters" required />
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Sending code to email...' : 'Create account'}
+              {loading ? 'Sending code...' : 'Create account'}
             </button>
             <p className="auth-footer">
               Already have an account? <Link to="/login">Sign in</Link>
@@ -462,14 +469,14 @@ function RegisterPage({ onLogin }) {
           <form onSubmit={handleConfirm}>
             {error && <div className="alert alert-error">{error}</div>}
             <p className="text-sm text-secondary" style={{ marginBottom: 16 }}>
-              A 6-digit confirmation code was sent to <strong>{email}</strong>. Check your inbox/spam folder.
+              A 6-digit verification code was sent to <strong>{email}</strong>. Check your inbox/spam folder.
             </p>
             <div className="form-group">
-              <label>AWS Cognito Verification Code</label>
+              <label>Verification Code</label>
               <input type="text" value={code} onChange={e => setCode(e.target.value)} placeholder="123456" required />
             </div>
             <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-              {loading ? 'Verifying with AWS...' : 'Verify Code & Sign In'}
+              {loading ? 'Verifying...' : 'Verify Code & Sign In'}
             </button>
           </form>
         )}
@@ -510,7 +517,7 @@ function Dashboard({ user }) {
   }
 
   if (loading) {
-    return <div className="page-loading"><div className="spinner"></div><p>Fetching secured profile from DynamoDB...</p></div>;
+    return <div className="page-loading"><div className="spinner"></div><p>Loading profile...</p></div>;
   }
 
   const emergencyUrl = profile?.emergencyId ? `${APP_URL}/e/${profile.emergencyId}` : null;
@@ -602,7 +609,7 @@ function Dashboard({ user }) {
 }
 
 // ═══════════════════════════════════════
-// EMERGENCY PROFILE FORM
+// EMERGENCY PROFILE FORM (Strict 10-Digit Mobile Validation)
 // ═══════════════════════════════════════
 function ProfileForm({ user }) {
   const [form, setForm] = useState({
@@ -640,6 +647,12 @@ function ProfileForm({ user }) {
     setSaved(false);
   }
 
+  // Filter non-digits and enforce strictly max 10 characters
+  function handlePhoneChange(field, rawVal) {
+    const digitsOnly = rawVal.replace(/\D/g, '').slice(0, 10);
+    updateField(field, digitsOnly);
+  }
+
   function toggleVisibility(field) {
     setForm(prev => ({
       ...prev,
@@ -654,7 +667,16 @@ function ProfileForm({ user }) {
   async function handleSave(e) {
     e.preventDefault();
     setError('');
-    if (!form.name) return setError('Name is required.');
+    if (!form.name) return setError('Full name is required.');
+
+    // 10-Digit Phone Validation
+    if (form.primaryContactPhone && form.primaryContactPhone.length !== 10) {
+      return setError('Primary contact phone number must be exactly 10 digits.');
+    }
+    if (form.secondaryContactPhone && form.secondaryContactPhone.length !== 10) {
+      return setError('Secondary contact phone number must be exactly 10 digits.');
+    }
+
     setSaving(true);
 
     try {
@@ -665,7 +687,7 @@ function ProfileForm({ user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save profile.');
+      setError(err.message || 'Failed to save profile. Check API Gateway URL.');
     }
     setSaving(false);
   }
@@ -673,7 +695,7 @@ function ProfileForm({ user }) {
   const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
   if (loading) {
-    return <div className="page-loading"><div className="spinner"></div><p>Loading profile from AWS...</p></div>;
+    return <div className="page-loading"><div className="spinner"></div><p>Loading profile...</p></div>;
   }
 
   function VisToggle({ field }) {
@@ -720,16 +742,28 @@ function ProfileForm({ user }) {
                 <input type="text" value={form.primaryContactName} onChange={e => updateField('primaryContactName', e.target.value)} placeholder="Priya Kumar" />
               </div>
               <div className="form-group">
-                <label>Primary contact phone</label>
-                <input type="tel" value={form.primaryContactPhone} onChange={e => updateField('primaryContactPhone', e.target.value)} placeholder="+919876543210" />
+                <label>Primary contact phone (10 digits)</label>
+                <input
+                  type="tel"
+                  value={form.primaryContactPhone}
+                  onChange={e => handlePhoneChange('primaryContactPhone', e.target.value)}
+                  placeholder="9876543210"
+                  maxLength={10}
+                />
               </div>
               <div className="form-group">
                 <label>Secondary contact name</label>
                 <input type="text" value={form.secondaryContactName} onChange={e => updateField('secondaryContactName', e.target.value)} placeholder="Dr. Sharma" />
               </div>
               <div className="form-group">
-                <label>Secondary contact phone</label>
-                <input type="tel" value={form.secondaryContactPhone} onChange={e => updateField('secondaryContactPhone', e.target.value)} placeholder="+919123456789" />
+                <label>Secondary contact phone (10 digits)</label>
+                <input
+                  type="tel"
+                  value={form.secondaryContactPhone}
+                  onChange={e => handlePhoneChange('secondaryContactPhone', e.target.value)}
+                  placeholder="9123456789"
+                  maxLength={10}
+                />
               </div>
             </div>
 
@@ -1057,7 +1091,7 @@ function WallpaperStudio({ user }) {
 }
 
 // ═══════════════════════════════════════
-// EMERGENCY VIEW (PUBLIC RESPONDER - AWS ONLY)
+// EMERGENCY VIEW (PUBLIC RESPONDER)
 // ═══════════════════════════════════════
 function EmergencyView() {
   const { id } = useParams();
