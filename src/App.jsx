@@ -14,8 +14,7 @@ import {
   Globe, Scan, Smartphone, Lock, Camera, Plus, Clock, Sliders
 } from 'lucide-react';
 
-// ─── Environment Config ───
-// Fallback to import.meta.env or empty
+// ─── Environment Config (STRICT AWS) ───
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID || '';
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '';
@@ -41,8 +40,8 @@ const translations = {
     years: 'years',
     disclaimer: 'Information shown here is provided by the profile owner and is not medically verified. Confirm critical information through appropriate medical procedures.',
     notFound: 'Emergency profile not found.',
-    notFoundSub: 'The profile may not exist in AWS DynamoDB or the ID is invalid.',
-    loading: 'Fetching emergency profile from AWS...'
+    notFoundSub: 'This profile may be inactive or does not exist in the system.',
+    loading: 'Fetching emergency profile securely...'
   },
   hi: {
     emergencyInfo: 'आपातकालीन जानकारी',
@@ -80,80 +79,29 @@ function t(key, lang = 'en') {
   return translations[lang]?.[key] || translations.en[key] || key;
 }
 
-function generateId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
-}
-
-// ─── Local Mock Fallback (Strict - No Fake Demo Data) ───
-function mockApi(method, path, body) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (path.startsWith('/emergency/')) {
-        const reqId = path.split('/')[2];
-        const stored = localStorage.getItem('ific_profile');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.emergencyId === reqId) return resolve(parsed);
-        }
-        // Return null if profile not found locally - do NOT show fake demo data
-        resolve(null);
-      } else if (path === '/profile/me') {
-        const stored = localStorage.getItem('ific_profile');
-        resolve(stored ? JSON.parse(stored) : {});
-      } else if (path === '/profile' && (method === 'POST' || method === 'PUT')) {
-        const existing = localStorage.getItem('ific_profile');
-        const prev = existing ? JSON.parse(existing) : {};
-        const profile = {
-          ...prev,
-          ...body,
-          emergencyId: body.emergencyId || prev.emergencyId || generateId(),
-          updatedAt: new Date().toISOString()
-        };
-        localStorage.setItem('ific_profile', JSON.stringify(profile));
-        resolve(profile);
-      } else {
-        resolve({});
-      }
-    }, 150);
-  });
-}
-
-// ─── API Gateway Fetch Handler ───
+// ─── STRICT API Fetch Handler (No Mocks allowed) ───
 async function apiCall(method, path, body = null, token = null) {
   if (!API_URL) {
-    console.warn('[AWS Warning]: VITE_API_URL is missing in environment settings.');
-    return mockApi(method, path, body);
+    throw new Error('SYSTEM ERROR: VITE_API_URL is missing. Connect AWS API Gateway.');
   }
 
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${API_URL}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : null
-    });
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : null
+  });
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `AWS HTTP Error ${res.status}`);
-    }
-    return await res.json();
-  } catch (err) {
-    console.error(`[AWS API Error on ${path}]:`, err.message);
-    // If scanning public emergency profile and AWS fails, throw error directly
-    if (path.startsWith('/emergency/')) {
-      throw err;
-    }
-    return mockApi(method, path, body);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP Error ${res.status}`);
   }
+  return await res.json();
 }
 
-// ─── Cognito Helpers ───
+// ─── STRICT Cognito Helpers (No Mocks allowed) ───
 function getCognitoSession() {
   return new Promise((resolve) => {
     if (!userPool) return resolve(null);
@@ -173,11 +121,8 @@ function getCognitoSession() {
 
 function cognitoLogin(email, password) {
   return new Promise((resolve, reject) => {
-    if (!userPool) {
-      const mockUser = { email, name: email.split('@')[0], token: 'mock-token' };
-      localStorage.setItem('ific_auth', JSON.stringify(mockUser));
-      return resolve(mockUser);
-    }
+    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured (.env missing).'));
+    
     const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
     const authDetails = new AuthenticationDetails({ Username: email, Password: password });
 
@@ -196,7 +141,8 @@ function cognitoLogin(email, password) {
 
 function cognitoSignUp(email, password, name) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return resolve({ user: email });
+    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured.'));
+    
     const attrList = [new CognitoUserAttribute({ Name: 'name', Value: name })];
     userPool.signUp(email, password, attrList, null, (err, result) => {
       if (err) return reject(err);
@@ -207,7 +153,8 @@ function cognitoSignUp(email, password, name) {
 
 function cognitoConfirm(email, code) {
   return new Promise((resolve, reject) => {
-    if (!userPool) return resolve(true);
+    if (!userPool) return reject(new Error('SYSTEM ERROR: AWS Cognito is not configured.'));
+    
     const cognitoUser = new CognitoUser({ Username: email, Pool: userPool });
     cognitoUser.confirmRegistration(code, true, (err, result) => {
       if (err) return reject(err);
@@ -221,7 +168,6 @@ function cognitoLogout() {
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) cognitoUser.signOut();
   }
-  localStorage.removeItem('ific_auth');
 }
 
 // ═══════════════════════════════════════
@@ -302,7 +248,7 @@ function LandingPage() {
                 <div className="phone-date">Thursday, January 16</div>
                 <div className="phone-qr-area">
                   <QRCodeCanvas
-                    value={`${APP_URL}/e/DEMO123`}
+                    value={`${APP_URL}/login`}
                     size={110}
                     level="M"
                     bgColor="#ffffff"
@@ -346,43 +292,6 @@ function LandingPage() {
               <div className="step-icon"><Camera size={24} /></div>
               <h3>Scan during emergency</h3>
               <p>Any bystander scans the QR with a normal phone camera.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section section-dark" id="safety">
-        <div className="section-inner">
-          <h2 className="section-title">What the responder sees</h2>
-          <div className="emergency-preview-wrapper">
-            <div className="emergency-preview">
-              <div className="ep-header">
-                <AlertTriangle size={22} />
-                <span>EMERGENCY INFORMATION</span>
-              </div>
-              <div className="ep-name">Rahul Kumar</div>
-              <div className="ep-grid">
-                <div className="ep-card ep-card-danger">
-                  <span className="ep-label">ALLERGY</span>
-                  <span className="ep-value">Penicillin</span>
-                </div>
-                <div className="ep-card">
-                  <span className="ep-label">BLOOD GROUP</span>
-                  <span className="ep-value">O+</span>
-                </div>
-                <div className="ep-card ep-card-warning">
-                  <span className="ep-label">CONDITION</span>
-                  <span className="ep-value">Type-1 Diabetes</span>
-                </div>
-                <div className="ep-card">
-                  <span className="ep-label">MEDICATION</span>
-                  <span className="ep-value">Insulin</span>
-                </div>
-              </div>
-              <div className="ep-actions">
-                <button className="btn btn-success btn-full"><Phone size={18} /> Call Emergency Contact</button>
-                <button className="btn btn-danger btn-full"><Phone size={18} /> Call 112</button>
-              </div>
             </div>
           </div>
         </div>
@@ -577,7 +486,7 @@ function Dashboard({ user }) {
   }
 
   if (loading) {
-    return <div className="page-loading"><div className="spinner"></div><p>Loading your profile...</p></div>;
+    return <div className="page-loading"><div className="spinner"></div><p>Fetching secured profile...</p></div>;
   }
 
   const emergencyUrl = profile?.emergencyId ? `${APP_URL}/e/${profile.emergencyId}` : null;
@@ -587,7 +496,7 @@ function Dashboard({ user }) {
       <div className="page-inner">
         <div className="page-header">
           <h1>Good to see you{user?.name ? `, ${user.name}` : ''}</h1>
-          <p className="text-secondary">Your emergency profile</p>
+          <p className="text-secondary">Your secure dashboard</p>
         </div>
 
         {!profile || !profile.emergencyId ? (
@@ -622,7 +531,7 @@ function Dashboard({ user }) {
                   <Edit size={16} /> Edit profile
                 </button>
                 <button className="btn btn-outline btn-sm" onClick={() => window.open(`/e/${profile.emergencyId}`, '_blank')}>
-                  <Eye size={16} /> View emergency page
+                  <Eye size={16} /> View public emergency page
                 </button>
               </div>
             </div>
@@ -645,7 +554,7 @@ function Dashboard({ user }) {
                   <QRCodeCanvas value={emergencyUrl} size={160} level="M" bgColor="#ffffff" fgColor="#000000" />
                 </div>
                 <div className="qr-link">
-                  <span className="text-sm text-secondary">Emergency link</span>
+                  <span className="text-sm text-secondary">Unique Emergency Link</span>
                   <code className="qr-url">{emergencyUrl}</code>
                   <button className="btn btn-ghost btn-sm" onClick={copyLink}>
                     {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy link</>}
@@ -698,7 +607,9 @@ function ProfileForm({ user }) {
       if (p && p.name) {
         setForm(prev => ({ ...prev, ...p, visibility: { ...prev.visibility, ...(p.visibility || {}) } }));
       }
-    } catch (err) {}
+    } catch (err) {
+      // It's okay if profile doesn't exist yet
+    }
     setLoading(false);
   }
 
@@ -732,7 +643,7 @@ function ProfileForm({ user }) {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to save profile to AWS.');
+      setError(err.message || 'Failed to save profile. Please try again.');
     }
     setSaving(false);
   }
@@ -762,19 +673,19 @@ function ProfileForm({ user }) {
       <div className="page-inner">
         <div className="page-header">
           <h1>Emergency Profile</h1>
-          <p className="text-secondary">This information is retrieved when responders scan your lock screen.</p>
+          <p className="text-secondary">This info will be fetched from DynamoDB when someone scans your QR.</p>
         </div>
 
         <form onSubmit={handleSave}>
           {error && <div className="alert alert-error">{error}</div>}
-          {saved && <div className="alert alert-success"><Check size={16} /> Profile saved successfully to AWS DynamoDB.</div>}
+          {saved && <div className="alert alert-success"><Check size={16} /> Profile successfully saved to AWS.</div>}
 
           <div className="form-grid">
             <div className="form-section">
               <h2 className="form-section-title"><User size={18} /> Personal Information</h2>
               <div className="form-group">
                 <label>Full name *</label>
-                <input type="text" value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="Rahul Kumar" required />
+                <input type="text" value={form.name} onChange={e => updateField('name', e.target.value)} placeholder="E.g. Rahul Kumar" required />
               </div>
               <div className="form-group">
                 <label>Age <VisToggle field="age" /></label>
@@ -843,15 +754,15 @@ function ProfileForm({ user }) {
 }
 
 // ═══════════════════════════════════════
-// WALLPAPER STUDIO
+// WALLPAPER STUDIO (Perfected X/Y Positioning)
 // ═══════════════════════════════════════
 function WallpaperStudio({ user }) {
   const [profile, setProfile] = useState(null);
   const [bgImage, setBgImage] = useState(null);
   const [bgImageUrl, setBgImageUrl] = useState('');
-  const [qrX, setQrX] = useState(65);
-  const [qrY, setQrY] = useState(70);
-  const [qrSize, setQrSize] = useState(22);
+  const [qrX, setQrX] = useState(50); // Maps perfectly 0 to 100 center
+  const [qrY, setQrY] = useState(70); // Maps perfectly 0 to 100 center
+  const [qrSize, setQrSize] = useState(25);
   const [qrOpacity, setQrOpacity] = useState(100);
   const [scanResult, setScanResult] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -911,14 +822,17 @@ function WallpaperStudio({ user }) {
     }
     ctx.drawImage(bgImage, sx, sy, sw, sh, 0, 0, targetW, targetH);
 
+    // Exact math translation from the DOM CSS to Canvas
     const qrPixelSize = Math.round(targetW * (qrSize / 100));
     const padding = 16;
     const containerSize = qrPixelSize + padding * 2;
+    
+    // The bounds in which the container can slide (0% to 100%)
+    const maxCanvasX = targetW - containerSize;
+    const maxCanvasY = targetH - (containerSize + 30); // 30 is text space
 
-    const maxCanvasX = targetW - containerSize - 32;
-    const maxCanvasY = targetH - containerSize - 64;
-    const qrCanvasX = Math.round((maxCanvasX * (qrX / 100)) + 16);
-    const qrCanvasY = Math.round((maxCanvasY * (qrY / 100)) + 32);
+    const qrCanvasX = Math.round(maxCanvasX * (qrX / 100));
+    const qrCanvasY = Math.round(maxCanvasY * (qrY / 100));
 
     ctx.globalAlpha = qrOpacity / 100;
     ctx.fillStyle = '#ffffff';
@@ -970,7 +884,7 @@ function WallpaperStudio({ user }) {
       <div className="page-inner">
         <div className="page-header">
           <h1>Wallpaper Studio</h1>
-          <p className="text-secondary">Create a lock screen wallpaper with custom X/Y QR positioning.</p>
+          <p className="text-secondary">Position your QR code anywhere on the screen.</p>
         </div>
 
         <div className="wallpaper-layout">
@@ -980,7 +894,8 @@ function WallpaperStudio({ user }) {
               <div className="phone-screen" style={bgImageUrl ? {
                 backgroundImage: `url(${bgImageUrl})`,
                 backgroundSize: 'cover',
-                backgroundPosition: 'center'
+                backgroundPosition: 'center',
+                position: 'relative' // Important for absolute child
               } : {}}>
                 {!bgImageUrl && (
                   <div className="phone-placeholder">
@@ -993,8 +908,9 @@ function WallpaperStudio({ user }) {
                     className="phone-qr-overlay"
                     style={{
                       position: 'absolute',
-                      left: `calc(${qrX}% * (100% - ${qrSize}% - 16px) / 100 + 8px)`,
-                      top: `calc(${qrY}% * (100% - ${qrSize}% - 32px) / 100 + 16px)`,
+                      left: `${qrX}%`,
+                      top: `${qrY}%`,
+                      transform: `translate(-${qrX}%, -${qrY}%)`, // Perfect scaling alignment
                       width: `${qrSize}%`,
                       opacity: qrOpacity / 100,
                       boxSizing: 'border-box'
@@ -1009,7 +925,7 @@ function WallpaperStudio({ user }) {
                         fgColor="#000000"
                         style={{ width: '100%', height: 'auto', display: 'block' }}
                       />
-                      <span className="phone-qr-mini-label">SCAN FOR EMERGENCY INFO</span>
+                      <span className="phone-qr-mini-label" style={{ fontSize: '6px' }}>SCAN FOR EMERGENCY INFO</span>
                     </div>
                   </div>
                 )}
@@ -1066,8 +982,8 @@ function WallpaperStudio({ user }) {
                   <h3 className="card-title">QR Size</h3>
                   <input
                     type="range"
-                    min={18}
-                    max={30}
+                    min={15}
+                    max={40}
                     value={qrSize}
                     onChange={e => setQrSize(Number(e.target.value))}
                     className="slider"
@@ -1273,12 +1189,7 @@ export default function App() {
 
   useEffect(() => {
     getCognitoSession().then((sessionUser) => {
-      if (sessionUser) {
-        setUser(sessionUser);
-      } else {
-        const localAuth = localStorage.getItem('ific_auth');
-        if (localAuth) setUser(JSON.parse(localAuth));
-      }
+      setUser(sessionUser);
       setInitializing(false);
     });
   }, []);
